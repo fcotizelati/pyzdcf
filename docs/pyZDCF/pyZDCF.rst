@@ -43,10 +43,10 @@ Dependencies
 
    ::
 
-      python = ">=3.8,<3.12"
-      numpy = ">=1.16.5"
-      pandas = "^1.3"
-      scipy = "^1.7.3"
+      python = ">=3.9,<3.15"
+      numpy = "^1.21.6"
+      pandas = "^2.2.3"
+      scipy = "^1.11"
 
 
 How to use
@@ -288,4 +288,3 @@ References
    
    
    
-

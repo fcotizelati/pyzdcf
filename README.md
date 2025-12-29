@@ -30,7 +30,7 @@ pip install pyzdcf
 ### Dependencies
 
 >```
->python = ">=3.9,<3.14"
+>python = ">=3.9,<3.15"
 >numpy = "^1.21.6"
 >pandas = "^2.2.3"
 >scipy = "^1.11"
@@ -40,7 +40,7 @@ Older versions of `pyzdcf` support older versions of Python, see table for detai
 
 | `pyzdcf` Version | Supported Python Versions | Notes                                            |
 | ---------------- | ------------------------- | -------------------------------------------------|
-| `>= 1.0.3`       | 3.9 – 3.13                | Requires newer dependencies (e.g. pandas ≥2.2.3) |
+| `>= 1.0.3`       | 3.9 – 3.14                | Requires newer dependencies (e.g. pandas ≥2.2.3) |
 | `<= 1.0.2`       | 3.8 – 3.11                | Compatible with older environments               |
 
 
@@ -229,6 +229,5 @@ For other citation formats see: [https://doi.org/10.5281/zenodo.7253034](https:/
 * [Kovačević, A.; Popović, L. Č.; Shapovalova, A. I.; et al. 2014, Advances in Space Research, 54, 1414-1428](https://ui.adsabs.harvard.edu/abs/2014AdSpR..54.1414K/abstract)
 * [Sánchez-Sáez, P.; Lira, H.; Martí, L.; et al. 2021,The Astronomical Journal, 162, id.206](https://ui.adsabs.harvard.edu/abs/2021AJ....162..206S/abstract)
 * [Shapovalova, A. I.; Popović, L. Č.; Afanasiev, V. L.; et al. 2019, MNRAS, 485, 4790-4803](https://ui.adsabs.harvard.edu/abs/2019MNRAS.485.4790S/abstract)
-
 
 

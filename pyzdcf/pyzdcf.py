@@ -5,11 +5,12 @@ __credits__ = ["Andjelka Kovacevic", "Dragana Ilic", "Paula Sanchez Saez", "Robe
 __maintainer__ = "Isidora Jankov"
 __contact__ = "isidora_jankov@matf.bg.ac.rs"
 __license__ = "MIT License"
-__version__ = "1.0.0"
+__version__ = "1.0.3"
 
 # Imports
 
-import sys
+from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -25,6 +26,21 @@ EPS = 1e-7
 
 
 # Module functions
+
+@dataclass(frozen=True)
+class ZDCFConfig:
+    autocf: bool
+    uniform_sampling: bool
+    omit_zero_lags: bool
+    minpts: int
+
+
+def _build_path(dir_path, filename):
+    return Path(dir_path) / filename
+
+
+def _clamp_corr(value, eps=EPS):
+    return np.clip(value, -1 + eps, 1 - eps)
 
 def read_obs(
     fname,
@@ -61,12 +77,14 @@ def read_obs(
     """
 
     # Load data
+    input_path = _build_path(input_dir, fname)
     lc = pd.read_table(
-        input_dir + fname, header=None, names=["t", "flux", "err"], sep=sep
+        input_path, header=None, names=["t", "flux", "err"], sep=sep
     )
-    assert not (
-        np.isnan(lc["flux"]).all()
-    ), f"NaN values encountered in {input_dir+fname}. Check if the file format is correct."
+    if np.isnan(lc["flux"]).all():
+        raise ValueError(
+            f"NaN values encountered in {input_path}. Check if the file format is correct."
+        )
 
     lc.sort_values(by="t", ascending=True, inplace=True)
 
@@ -75,7 +93,8 @@ def read_obs(
 
     # Save .lc file (condensed)
     if savelc == True:
-        lc.to_csv(output_dir + out_name, index=False)
+        output_path = _build_path(output_dir, out_name)
+        lc.to_csv(output_path, index=False)
         print(f"{out_name} written (contains {len(lc.t)} points)")
 
     return lc
@@ -143,7 +162,7 @@ def fishe(r, n):
     return fish
 
 
-def tlag_pts(a, b, verbose=True):
+def tlag_pts(a, b, config, verbose=True):
     """
     Generate all possible point pairs {a_i, b_j} and order them by their 
     associated time lags.
@@ -167,19 +186,19 @@ def tlag_pts(a, b, verbose=True):
         first_time = False
         if verbose:
             print(
-                f"\nBinning with minimum of {Minpts} points "
+                f"\nBinning with minimum of {config.minpts} points "
                 f"per bin and resolution of {RSLUTN}\n"
             )
 
     # Calculate all the time lag points
 
-    if Autocf:
+    if config.autocf:
 
         l1 = 0
         for i in range(a_n):
             tij = b_t[i:] - b_t[i]
             wb = np.arange(i, b_n)
-            if (NoZeroLag == True) & (np.any(tij == 0)):
+            if (config.omit_zero_lags == True) & (np.any(tij == 0)):
                 wb = wb[tij != 0]
                 tij = tij[tij != 0]
             l2 = len(tij) + l1
@@ -194,7 +213,7 @@ def tlag_pts(a, b, verbose=True):
         for i in range(a_n):
             tij = b_t[:] - a_t[i]
             wb = np.arange(b_n)
-            if (NoZeroLag == True) & (np.any(tij == 0)):
+            if (config.omit_zero_lags == True) & (np.any(tij == 0)):
                 wb = wb[tij != 0]
                 tij = tij[tij != 0]
             l2 = len(tij) + l1
@@ -227,7 +246,7 @@ def range_inclusive(start, end, incr):
         return range(start, end - 1, incr)
 
 
-def alcbin(a, b, sparse="auto", verbose=True):
+def alcbin(a, b, config, sparse="auto", verbose=True):
     """
     Generate and order all possible point pairs by their associated time-lag. 
     "The ordered list is then divided, bin by bin, into bins of Minpts pairs. 
@@ -243,8 +262,15 @@ def alcbin(a, b, sparse="auto", verbose=True):
     light curve to economize RAM usage.
     """
 
+    a_n = len(a.t)
+    b_n = len(b.t)
+    maxpts = min(a_n, b_n)
+    autocf = config.autocf
+    unisample = config.uniform_sampling
+    minpts = config.minpts
+
     # Calculating all time-lag points and their index
-    wtau, waidx, wbidx, idx, npp = tlag_pts(a, b, verbose=verbose)
+    wtau, waidx, wbidx, idx, npp = tlag_pts(a, b, config, verbose=verbose)
 
     # Calculating the tolerance level for lags to be considered the same
     tij = wtau[idx[npp - 1]] - wtau[idx[0]]
@@ -255,7 +281,7 @@ def alcbin(a, b, sparse="auto", verbose=True):
     # subsequently determined on the fly and stored in dcf_nbins variable.
     # It is typically much smaller than mbins.
 
-    mbins = int((npp + 1) / Minpts) + 1
+    mbins = int((npp + 1) / minpts) + 1
 
     dcf_t = np.full(mbins, -9999, dtype=float)
     dcf_sigtm = np.full(mbins, -9999, dtype=float)
@@ -294,7 +320,7 @@ def alcbin(a, b, sparse="auto", verbose=True):
 
     # If binned CCF: binning from median time-lag upwards and backwards!
 
-    if Autocf or UniSample:
+    if autocf or unisample:
         pfr = 0
         pmax = npp - 1
         incr = 1
@@ -316,7 +342,7 @@ def alcbin(a, b, sparse="auto", verbose=True):
 
         # This shouldn't happen...
         if nbins > mbins:
-            sys.exit("alcbin: nbins > mbins (this shouldn't happen...)")
+            raise RuntimeError("alcbin: nbins > mbins (this shouldn't happen...)")
 
         dcf_t[nbins] = 0.0
 
@@ -339,19 +365,19 @@ def alcbin(a, b, sparse="auto", verbose=True):
             # Check whether bin is full
             if (
                 (abs(wtau[p] - tij) > tolrnc)
-                & ((inb >= Minpts) | UniSample)  # tij = previous lag
+                & ((inb >= minpts) | unisample)  # tij = previous lag
             ) | (i == pmax):
                 # Bin is full: Calculating tau and its std
                 # (before proceeding to the next bin)
                 dcf_inbin[nbins] = inb
                 dcf_t[nbins] = dcf_t[nbins] / inb
 
-                if UniSample:
+                if unisample:
                     dcf_sigtm[nbins] = 0.0
                     dcf_sigtp[nbins] = 0.0
                     pfr = i
                     # If not ENOUGH points in bin, ignore it
-                    if inb < Minpts:
+                    if inb < minpts:
                         nbins = nbins - 1
                     if pfr != pmax:
                         continue_bin_loop = True
@@ -398,7 +424,7 @@ def alcbin(a, b, sparse="auto", verbose=True):
                 inb += 1
                 # This shouldn't happen...
                 if inb > maxpts:
-                    sys.exit("ALCBIN: inb > maxpts = {}.".format(maxpts))
+                    raise RuntimeError("alcbin: inb > maxpts = {}.".format(maxpts))
 
                 a_used[waidx[p]] = True
                 b_used[wbidx[p]] = True
@@ -412,7 +438,7 @@ def alcbin(a, b, sparse="auto", verbose=True):
             continue
 
         # Binning is finished
-        if not (Autocf or UniSample or (incr == 1)):
+        if not (autocf or unisample or (incr == 1)):
             # Now, go back and bin the other half lag axis
             pfr = int(npp / 2) + 1 - 1
             pmax = npp - 1
@@ -425,7 +451,7 @@ def alcbin(a, b, sparse="auto", verbose=True):
     # chronological order: The nnegtv negative bins are at the
     # beginning but at reverse order.
 
-    if not (Autocf or UniSample):
+    if not (autocf or unisample):
         for i in range_inclusive(0, int(nnegtv / 2), 1):
             j = nnegtv - i
             # swapping
@@ -441,7 +467,7 @@ def alcbin(a, b, sparse="auto", verbose=True):
 
     dcf_nbins = nbins + 1
     if dcf_nbins == 0:
-        sys.exit("alcbin: nbins = 0")
+        raise RuntimeError("alcbin: nbins = 0")
 
     # Num. of bins is calculated, so we can cut these arrays to save memory...
     wa_i = wa_i[:, :dcf_nbins]
@@ -463,14 +489,14 @@ def alcbin(a, b, sparse="auto", verbose=True):
     return dcf_vars, work_areas, mbins
 
 
-def dcf_pairs(dcf_inbin, dcf_nbins):
+def dcf_pairs(dcf_inbin, dcf_nbins, config, a_n, b_n):
     """
     Calculate the number of inter-dependent pairs.
     """
     dcf_used = np.sum(dcf_inbin[:dcf_nbins])
 
-    if Autocf:
-        if NoZeroLag:
+    if config.autocf:
+        if config.omit_zero_lags:
             dcf_unused = (a_n * (a_n - 1) / 2) - dcf_used
         else:
             dcf_unused = ((a_n**2) / 2) - dcf_used
@@ -527,21 +553,12 @@ def clcdcf(a, b, dcf_vars, work_areas, MC=False):
 
         if vnorm <= 0:
             # Pathological case: normalization factor <= 0
-            dcf_r[ibin] = 0
+            expbin = 0.0
+            dcf_r[ibin] = 0.0
         else:
             expbin = np.sum((wa_x[:n] - expa) * (wb_x[:n] - expb))
             expbin = expbin / np.sqrt(vnorm) / (n - 1)
-            # Making sure -1 < r < 1
-            try:
-                assert (expbin < 1 - EPS) & (
-                    expbin > -1 + EPS
-                ), "dcf_r is out of bounds of (-1,1)"
-            except AssertionError:
-                if expbin > 1 - EPS:
-                    expbin = 1 - EPS
-                elif expbin < -1 + EPS:
-                    expbin = -1 + EPS
-
+            expbin = _clamp_corr(expbin)
             dcf_r[ibin] = expbin
 
         # Calculating the +/- 1 Sigma limits from Fisher's z
@@ -564,18 +581,35 @@ def clcdcf(a, b, dcf_vars, work_areas, MC=False):
     return dcf_taus, dcf_rs, dcf_other
 
 
-def check_user_input(usr_input):
+def check_user_input(usr_input, name="value", allow_float=False):
+    if usr_input is None:
+        raise ValueError(f"Invalid {name}. Please enter a number.")
+
+    if isinstance(usr_input, bool):
+        raise ValueError(f"Invalid {name}. Please enter a number.")
+
+    if isinstance(usr_input, int):
+        return usr_input
+
+    if isinstance(usr_input, float):
+        if allow_float:
+            return usr_input
+        if usr_input.is_integer():
+            return int(usr_input)
+        raise ValueError(f"Invalid {name}. Please enter a whole number.")
+
     try:
-        # Convert it into integer
-        val = int(usr_input)
-        return val
-    except ValueError:
+        return int(str(usr_input).strip())
+    except (ValueError, TypeError):
         try:
-            # Convert it into float
-            val = float(usr_input)
+            val = float(str(usr_input).strip())
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid {name}. Please enter a number.") from None
+        if allow_float:
             return val
-        except ValueError:
-            print("Invalid input. Please enter a number.")
+        if val.is_integer():
+            return int(val)
+        raise ValueError(f"Invalid {name}. Please enter a whole number.") from None
 
 
 def user_input(interactive=True, verbose=True, parameters={}):
@@ -631,45 +665,54 @@ def user_input(interactive=True, verbose=True, parameters={}):
         print("\npyZDCF begins:\n")
 
     if interactive:
-        inpi = input("Auto-correlation or cross-correlation? (1/2): ")
+        def prompt_choice(prompt, choices, name):
+            while True:
+                value = input(prompt).strip()
+                if value in choices:
+                    return choices[value]
+                print(f"Invalid {name}. Please enter one of: {', '.join(choices.keys())}.")
 
-        if inpi == "1":
-            Autocf = True
-        elif inpi == "2":
-            Autocf = False
+        def prompt_yes_no(prompt, name):
+            while True:
+                value = input(prompt).strip().lower()
+                if value in ("y", "yes"):
+                    return True
+                if value in ("n", "no"):
+                    return False
+                print(f"Invalid {name}. Please enter y/n.")
 
-        Prefix = input("Enter output files prefix: ")
+        def prompt_int(prompt, name):
+            while True:
+                try:
+                    return check_user_input(input(prompt), name=name)
+                except ValueError as exc:
+                    print(exc)
 
-        inpc = input("Uniform sampling of light curve? (y/n): ")
+        Autocf = prompt_choice(
+            "Auto-correlation or cross-correlation? (1/2): ",
+            {"1": True, "2": False},
+            "correlation mode",
+        )
 
-        if (inpc == "y") | (inpc == "Y"):
-            UniSample = True
-        elif (inpc == "n") | (inpc == "N"):
-            UniSample = False
+        Prefix = input("Enter output files prefix: ").strip()
 
-        Minpts = input("Enter minimal number of points per bin (0 for default): ")
-        Minpts = check_user_input(Minpts)
+        UniSample = prompt_yes_no("Uniform sampling of light curve? (y/n): ", "sampling")
+
+        Minpts = prompt_int("Enter minimal number of points per bin (0 for default): ", "minpts")
         if Minpts <= 0:
             Minpts = ENOUGH
 
-        inpz = input("Omit zero-lag points? (y/n): ")
-        if (inpz == "y") | (inpz == "Y"):
-            NoZeroLag = True
-        elif (inpz == "n") | (inpz == "N"):
-            NoZeroLag = False
+        NoZeroLag = prompt_yes_no("Omit zero-lag points? (y/n): ", "zero-lag option")
 
-        nMC = input("How many Monte Carlo runs for error estimation? ")
-        nMC = check_user_input(nMC)
+        nMC = prompt_int("How many Monte Carlo runs for error estimation? ", "num_MC")
         if nMC <= 1:
             nMC = 0
 
+        Name1 = input("Enter name of 1st light curve file: ").strip()
         if Autocf:
-            Name1 = input("Enter name of 1st light curve file: ")
             Name2 = Name1
-
         else:
-            Name1 = input("Enter name of 1st light curve file: ")
-            Name2 = input("Enter name of 2nd light curve file: ")
+            Name2 = input("Enter name of 2nd light curve file: ").strip()
 
     else:
         # Manual input
@@ -698,8 +741,8 @@ def user_input(interactive=True, verbose=True, parameters={}):
             Name2 = parameters['lc2_name']
             
         # Check if input values are valid
-        Minpts = check_user_input(Minpts)
-        nMC = check_user_input(nMC)
+        Minpts = check_user_input(Minpts, name="minpts")
+        nMC = check_user_input(nMC, name="num_MC")
         if Minpts <= 0:
             Minpts = ENOUGH
         if nMC <= 1:
@@ -793,9 +836,6 @@ def pyzdcf(
         zdcf sampling error, number of points per bin. 
     """
 
-    # User inputs are treated as global constants
-    global Autocf, UniSample, NoZeroLag, Minpts, nMC
-
     # Interactive user input
     if intr:
         Autocf, Prefix, UniSample, NoZeroLag, Minpts, nMC, Name1, Name2 = user_input(
@@ -808,8 +848,12 @@ def pyzdcf(
             interactive=False, parameters=parameters, verbose=verbose
         )
 
-    # Constants derived from user input are also global constants
-    global a_n, b_n, maxpts
+    config = ZDCFConfig(
+        autocf=Autocf,
+        uniform_sampling=UniSample,
+        omit_zero_lags=NoZeroLag,
+        minpts=Minpts,
+    )
 
     # Load data
     a = read_obs(
@@ -827,10 +871,9 @@ def pyzdcf(
             savelc=savelc,
         )
 
-    # Initialize global constants infered from user input
+    # Initialize constants infered from user input
     a_n = len(a.t)
     b_n = len(b.t)
-    maxpts = min(a_n, b_n)
 
     # Additional info: maxpts is the maximal number of points in a bin.
     # In principle maxpts = npp ( the number of all pairs: a huge number).
@@ -852,51 +895,32 @@ def pyzdcf(
 
             if i == 0:  # First MC iteration
                 dcf_vars, work_areas, mbins = alcbin(
-                    a, b, sparse=sparse, verbose=verbose
+                    a, b, config, sparse=sparse, verbose=verbose
                 )
                 dcf_taus, dcf_rs, dcf_other = clcdcf(
                     a, b, dcf_vars, work_areas, MC=True
                 )
                 dcf_avz = np.zeros(len(dcf_rs[0]))
                 if verbose:
-                    dcf_unused = dcf_pairs(*dcf_other)
+                    dcf_unused = dcf_pairs(*dcf_other, config, a_n, b_n)
                     print(
                         f"{dcf_other[1]} bins actually used, {dcf_unused} inter-dependent pairs discarded."
                     )
-                dcf_avz = dcf_avz + np.log((1 + dcf_rs[0]) / (1 - dcf_rs[0])) / 2
+                dcf_r = _clamp_corr(dcf_rs[0])
+                dcf_avz = dcf_avz + np.log((1 + dcf_r) / (1 - dcf_r)) / 2
                 continue
 
             dcf_taus, dcf_rs, dcf_other = clcdcf(a, b, dcf_vars, work_areas, MC=True)
             dcf_r, dcf_sigrm, dcf_sigrp = dcf_rs
             dcf_inbin = dcf_other[0]
 
-            # Making sure -1 < dcf < 1 in all bins
-            try:
-                assert (np.max(dcf_r) < 1 - EPS) & (
-                    np.min(dcf_r) > -1 + EPS
-                ), "dcf_r is out of bounds of (-1,1)"
-            except AssertionError:
-                cond1 = dcf_r < -1 + EPS
-                cond2 = dcf_r > 1 - EPS
-                dcf_r[cond1] = -1 + EPS
-                dcf_r[cond2] = 1 - EPS
+            dcf_r = _clamp_corr(dcf_r)
 
             # The summing and averaging is done in z-space.
             dcf_avz = dcf_avz + np.log((1 + dcf_r) / (1 - dcf_r)) / 2
 
         dcf_avz = dcf_avz / nMC
-        dcf_r = np.tanh(dcf_avz)
-
-        # Making sure -1 < dcf < 1 in all bins
-        try:
-            assert (np.max(dcf_r) < 1 - EPS) & (
-                np.min(dcf_r) > -1 + EPS
-            ), "dcf_r is out of bounds of (-1,1)"
-        except AssertionError:
-            cond1 = dcf_r < -1 + EPS
-            cond2 = dcf_r > 1 - EPS
-            dcf_r[cond1] = -1 + EPS
-            dcf_r[cond2] = 1 - EPS
+        dcf_r = _clamp_corr(np.tanh(dcf_avz))
 
         dcf_avz = np.log((1 + dcf_r) / (1 - dcf_r)) / 2
         dcf_expz = fishe(dcf_r, dcf_inbin)
@@ -908,13 +932,13 @@ def pyzdcf(
 
     else:
         # calculate the ZDCF w/o Monte Carlo errors.
-        dcf_vars, work_areas, mbins = alcbin(a, b, sparse=sparse, verbose=verbose)
+        dcf_vars, work_areas, mbins = alcbin(a, b, config, sparse=sparse, verbose=verbose)
         dcf_taus, dcf_rs, dcf_other = clcdcf(a, b, dcf_vars, work_areas)
         dcf_t, dcf_sigtm, dcf_sigtp = dcf_taus
         dcf_r, dcf_sigrm, dcf_sigrp = dcf_rs
         dcf_inbin = dcf_other[0]
         if verbose:
-            dcf_unused = dcf_pairs(*dcf_other)
+            dcf_unused = dcf_pairs(*dcf_other, config, a_n, b_n)
             print(
                 f"{dcf_other[1]} bins actually used, {int(dcf_unused)} inter-dependent pairs discarded."
             )
@@ -925,8 +949,9 @@ def pyzdcf(
     )
     lim = dcf_other[1]
     d = d[:lim, :]
+    output_path = _build_path(output_dir, Prefix + ".dcf")
     np.savetxt(
-        output_dir + Prefix + ".dcf",
+        output_path,
         d,
         fmt=["%11.3e", "%11.3e", "%11.3e", "%11.3e", "%11.3e", "%11.3e", "%5.1i"],
     )

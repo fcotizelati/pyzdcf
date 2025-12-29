@@ -1,8 +1,12 @@
 import numpy as np
+from pathlib import Path
 from pyzdcf import pyzdcf
 
-test_data = '../test_data/test_lc2/'
-results = '../test_data/test_lc2/results_py/'
+BASE_DIR = Path(__file__).resolve().parents[1]
+test_data = str(BASE_DIR / "test_data" / "test_lc2") + "/"
+results = str(BASE_DIR / "test_data" / "test_lc2" / "results_py") + "/"
+
+
 
 # Length = 3500 days, R_BLR = 34.1 days
 lc1 = 'lcx_3500'
