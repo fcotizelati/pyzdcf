@@ -81,9 +81,13 @@ def read_obs(
     lc = pd.read_table(
         input_path, header=None, names=["t", "flux", "err"], sep=sep
     )
-    if np.isnan(lc["flux"]).all():
+    if lc.empty:
+        raise ValueError(f"No data found in {input_path}.")
+    lc = lc.apply(pd.to_numeric, errors="coerce")
+    if lc[["t", "flux", "err"]].isna().any().any():
         raise ValueError(
-            f"NaN values encountered in {input_path}. Check if the file format is correct."
+            f"NaN or non-numeric values encountered in {input_path}. "
+            "Check if the file format is correct."
         )
 
     lc.sort_values(by="t", ascending=True, inplace=True)
@@ -100,24 +104,26 @@ def read_obs(
     return lc
 
 
-def simerr(flux, err):
+def simerr(flux, err, rng=None):
     """
     Generating a "true" signal by substracting gaussian noise from observations.
     The error err is the ABSOLUTE error in flux.
     """
     n = len(err)
-    mc = flux - (err * rndnrm(n))
+    mc = flux - (err * rndnrm(n, rng=rng))
     return mc
 
 
-def rndnrm(n):
+def rndnrm(n, rng=None):
     """
     Generating an array (size: n) of standard Gaussian deviates using the
     Box-Muller method.
     """
+    if rng is None:
+        rng = np.random
     n2 = int((n + 1) / 2)
-    x1 = np.random.uniform(size=n2)
-    x2 = np.random.uniform(size=n2)
+    x1 = rng.uniform(size=n2)
+    x2 = rng.uniform(size=n2)
     x2 = x2 * 2 * np.pi
     C = np.sqrt(-2 * (np.log(x1)))
     x1 = C * np.cos(x2)
@@ -173,28 +179,22 @@ def tlag_pts(a, b, config, verbose=True):
     a_t = a["t"].values
     b_t = b["t"].values
 
-    # Allocating the dynamic work areas
-    # -9999 is an arbitrary number different than zero (zero could be mistaken
-    # for a proper index value)
-    waidx = np.full(a_n * b_n, -9999, dtype=np.int32)
-    wbidx = np.full(a_n * b_n, -9999, dtype=np.int32)
-    wtau = np.full(a_n * b_n, -9999, dtype=np.float32)
+    # Allocate dynamic work areas and keep explicit write pointer `l1`.
+    # This avoids sentinel-value collisions with valid lag values.
+    waidx = np.empty(a_n * b_n, dtype=np.int32)
+    wbidx = np.empty(a_n * b_n, dtype=np.int32)
+    wtau = np.empty(a_n * b_n, dtype=np.float32)
 
-    first_time = True
-
-    if first_time:
-        first_time = False
-        if verbose:
-            print(
-                f"\nBinning with minimum of {config.minpts} points "
-                f"per bin and resolution of {RSLUTN}\n"
-            )
+    if verbose:
+        print(
+            f"\nBinning with minimum of {config.minpts} points "
+            f"per bin and resolution of {RSLUTN}\n"
+        )
 
     # Calculate all the time lag points
+    l1 = 0
 
     if config.autocf:
-
-        l1 = 0
         for i in range(a_n):
             tij = b_t[i:] - b_t[i]
             wb = np.arange(i, b_n)
@@ -208,8 +208,6 @@ def tlag_pts(a, b, config, verbose=True):
             l1 = l2
 
     else:
-
-        l1 = 0
         for i in range(a_n):
             tij = b_t[:] - a_t[i]
             wb = np.arange(b_n)
@@ -222,7 +220,7 @@ def tlag_pts(a, b, config, verbose=True):
             wbidx[l1:l2] = wb
             l1 = l2
 
-    npp = len(wtau[wtau != -9999])  # Number of all pairs
+    npp = l1  # Number of all generated pairs
 
     wtau = wtau[:npp]
     waidx = waidx[:npp]
@@ -271,6 +269,11 @@ def alcbin(a, b, config, sparse="auto", verbose=True):
 
     # Calculating all time-lag points and their index
     wtau, waidx, wbidx, idx, npp = tlag_pts(a, b, config, verbose=verbose)
+    if npp == 0:
+        raise ValueError(
+            "No valid pairs available for binning. "
+            "Check the input light curves and omit_zero_lags setting."
+        )
 
     # Calculating the tolerance level for lags to be considered the same
     tij = wtau[idx[npp - 1]] - wtau[idx[0]]
@@ -341,7 +344,7 @@ def alcbin(a, b, config, sparse="auto", verbose=True):
         nbins += 1
 
         # This shouldn't happen...
-        if nbins > mbins:
+        if nbins >= mbins:
             raise RuntimeError("alcbin: nbins > mbins (this shouldn't happen...)")
 
         dcf_t[nbins] = 0.0
@@ -370,6 +373,12 @@ def alcbin(a, b, config, sparse="auto", verbose=True):
                 # Bin is full: Calculating tau and its std
                 # (before proceeding to the next bin)
                 dcf_inbin[nbins] = inb
+                if inb == 0:
+                    nbins = nbins - 1
+                    pfr = i
+                    if pfr != pmax:
+                        continue_bin_loop = True
+                    break
                 dcf_t[nbins] = dcf_t[nbins] / inb
 
                 if unisample:
@@ -497,11 +506,12 @@ def dcf_pairs(dcf_inbin, dcf_nbins, config, a_n, b_n):
 
     if config.autocf:
         if config.omit_zero_lags:
-            dcf_unused = (a_n * (a_n - 1) / 2) - dcf_used
+            total_pairs = (a_n * (a_n - 1)) // 2
         else:
-            dcf_unused = ((a_n**2) / 2) - dcf_used
+            total_pairs = (a_n * (a_n + 1)) // 2
     else:
-        dcf_unused = (a_n * b_n) - dcf_used
+        total_pairs = a_n * b_n
+    dcf_unused = total_pairs - dcf_used
 
     return dcf_unused
 
@@ -717,7 +727,7 @@ def user_input(interactive=True, verbose=True, parameters={}):
     else:
         # Manual input
         input_keys = ['autocf', 'prefix', 'uniform_sampling', 'omit_zero_lags',
-                'minpts', 'lc1_name']
+                'minpts', 'num_MC', 'lc1_name']
         
         # Check if all required keys are provided by the user
         for i in input_keys:
@@ -885,13 +895,13 @@ def pyzdcf(
 
     # Estimating the effects of the measurement errors by Monte Carlo simulations
 
-    np.random.seed(ISEED)
+    rng = np.random.RandomState(ISEED)
 
     if nMC > 1:
         # Calculate the ZDCF with Monte Carlo errors
         for i in range(nMC):
-            a["MC"] = simerr(a.flux, a.err)
-            b["MC"] = simerr(b.flux, b.err)
+            a["MC"] = simerr(a.flux, a.err, rng=rng)
+            b["MC"] = simerr(b.flux, b.err, rng=rng)
 
             if i == 0:  # First MC iteration
                 dcf_vars, work_areas, mbins = alcbin(
