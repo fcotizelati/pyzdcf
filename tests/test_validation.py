@@ -1,15 +1,20 @@
 import warnings
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from pyzdcf.pyzdcf import (
     ZDCFConfig,
+    alcbin,
     check_user_input,
+    clcdcf,
     dcf_pairs,
     pyzdcf,
+    pyzdcf_from_dataframes,
     read_obs,
     user_input,
+    ZDCFBin,
 )
 
 
@@ -51,6 +56,14 @@ def test_read_obs_accepts_dir_without_trailing_slash(tmp_path):
     assert len(df) == 2
 
 
+def test_read_obs_rejects_negative_uncertainty(tmp_path):
+    data_path = tmp_path / "bad_err.csv"
+    write_lc(data_path, ["0,1.0,-0.1", "1,2.0,0.1"])
+
+    with pytest.raises(ValueError, match="non-negative"):
+        read_obs("bad_err.csv", input_dir=tmp_path, sep=",")
+
+
 def test_user_input_rejects_non_integer_minpts():
     params = {
         "autocf": True,
@@ -66,6 +79,21 @@ def test_user_input_rejects_non_integer_minpts():
         user_input(interactive=False, parameters=params, verbose=False)
 
 
+def test_user_input_rejects_minpts_below_two():
+    params = {
+        "autocf": True,
+        "prefix": "out",
+        "uniform_sampling": True,
+        "omit_zero_lags": False,
+        "minpts": 1,
+        "num_MC": 0,
+        "lc1_name": "lc.csv",
+    }
+
+    with pytest.raises(ValueError, match=">= 2"):
+        user_input(interactive=False, parameters=params, verbose=False)
+
+
 def test_user_input_rejects_missing_num_mc():
     params = {
         "autocf": True,
@@ -77,6 +105,21 @@ def test_user_input_rejects_missing_num_mc():
     }
 
     with pytest.raises(KeyError, match="num_MC"):
+        user_input(interactive=False, parameters=params, verbose=False)
+
+
+def test_user_input_rejects_non_boolean_flags():
+    params = {
+        "autocf": "False",
+        "prefix": "out",
+        "uniform_sampling": True,
+        "omit_zero_lags": False,
+        "minpts": 2,
+        "num_MC": 0,
+        "lc1_name": "lc.csv",
+    }
+
+    with pytest.raises(ValueError, match="True/False"):
         user_input(interactive=False, parameters=params, verbose=False)
 
 
@@ -127,15 +170,15 @@ def test_pyzdcf_writes_output_without_trailing_slash(tmp_path):
 
 
 def test_pyzdcf_handles_lag_equal_negative_sentinel_value(tmp_path):
-    write_lc(tmp_path / "a.csv", ["9999,1.0,0.1", "10000,1.1,0.1"])
-    write_lc(tmp_path / "b.csv", ["1,2.0,0.1"])
+    write_lc(tmp_path / "a.csv", ["9999,1.0,0.1", "10000,1.1,0.1", "10001,1.2,0.1"])
+    write_lc(tmp_path / "b.csv", ["1,2.0,0.1", "2,2.1,0.1"])
 
     params = {
         "autocf": False,
         "prefix": "sentinel",
         "uniform_sampling": True,
         "omit_zero_lags": False,
-        "minpts": 1,
+        "minpts": 2,
         "num_MC": 1,
         "lc1_name": "a.csv",
         "lc2_name": "b.csv",
@@ -152,6 +195,30 @@ def test_pyzdcf_handles_lag_equal_negative_sentinel_value(tmp_path):
 
     assert not df.empty
     assert np.isclose(df["tau"].iloc[0], -9999.0)
+
+
+def test_pyzdcf_rejects_minpts_equal_one(tmp_path):
+    write_lc(tmp_path / "lc.csv", ["0,1.0,0.1", "1,1.1,0.1", "2,0.9,0.1"])
+
+    params = {
+        "autocf": True,
+        "prefix": "bad_minpts",
+        "uniform_sampling": True,
+        "omit_zero_lags": False,
+        "minpts": 1,
+        "num_MC": 0,
+        "lc1_name": "lc.csv",
+    }
+
+    with pytest.raises(ValueError, match=">= 2"):
+        pyzdcf(
+            input_dir=str(tmp_path),
+            output_dir=str(tmp_path),
+            intr=False,
+            parameters=params,
+            sparse=False,
+            verbose=False,
+        )
 
 
 def test_pyzdcf_raises_clear_error_when_no_valid_pairs(tmp_path):
@@ -252,3 +319,95 @@ def test_pyzdcf_does_not_modify_global_numpy_rng_state(tmp_path):
 
     assert np.isclose(observed_first, expected_first)
     assert np.isclose(observed_second, expected_second)
+
+
+def test_pyzdcf_rejects_invalid_sparse_mode(tmp_path):
+    write_lc(tmp_path / "lc.csv", ["0,1.0,0.1", "1,1.1,0.1", "2,0.9,0.1"])
+
+    params = {
+        "autocf": True,
+        "prefix": "bad_sparse",
+        "uniform_sampling": True,
+        "omit_zero_lags": False,
+        "minpts": 2,
+        "num_MC": 0,
+        "lc1_name": "lc.csv",
+    }
+
+    with pytest.raises(ValueError, match="Invalid sparse mode"):
+        pyzdcf(
+            input_dir=str(tmp_path),
+            output_dir=str(tmp_path),
+            intr=False,
+            parameters=params,
+            sparse="yes",
+            verbose=False,
+        )
+
+
+def test_alcbin_keeps_last_pair_when_minpts_one():
+    lc = pd.DataFrame({"t": [0, 1], "flux": [1.0, 2.0], "err": [0.1, 0.1]})
+    config = ZDCFConfig(
+        autocf=True, uniform_sampling=True, omit_zero_lags=False, minpts=1
+    )
+
+    bins = alcbin(lc, lc, config, sparse=False, verbose=False)
+
+    assert [(zbin.tau, len(zbin.a_idx)) for zbin in bins] == [(0.0, 2), (1.0, 1)]
+
+
+def test_alcbin_does_not_split_zero_lag_plateau():
+    lc = pd.DataFrame({"t": [0, 1, 2], "flux": [1.0, 2.0, 3.0], "err": [0.1] * 3})
+    config = ZDCFConfig(
+        autocf=False, uniform_sampling=False, omit_zero_lags=False, minpts=1
+    )
+
+    bins = alcbin(lc, lc, config, sparse=False, verbose=False)
+
+    assert sum(np.isclose(zbin.tau, 0.0) for zbin in bins) == 1
+
+
+def test_clcdcf_is_numerically_stable_for_large_flux_offsets():
+    flux = np.array([1e12, 1e12 + 1, 1e12 + 2], dtype=float)
+    lc = pd.DataFrame({"t": [0, 1, 2], "flux": flux, "err": [0.1, 0.1, 0.1]})
+    bins = [
+        ZDCFBin(
+            tau=0.0,
+            sigtm=0.0,
+            sigtp=0.0,
+            a_idx=np.array([0, 1, 2], dtype=np.int32),
+            b_idx=np.array([0, 1, 2], dtype=np.int32),
+        )
+    ]
+
+    _, dcf_rs, _ = clcdcf(lc, lc, bins, MC=False)
+
+    assert np.isclose(dcf_rs[0][0], 1.0, rtol=1e-6)
+
+
+def test_dense_and_streaming_paths_match():
+    lc = pd.DataFrame(
+        {
+            "t": np.arange(8, dtype=float),
+            "flux": np.sin(np.arange(8, dtype=float)),
+            "err": np.full(8, 0.1),
+        }
+    )
+
+    params = dict(
+        autocf=False,
+        uniform_sampling=False,
+        omit_zero_lags=False,
+        minpts=2,
+        num_MC=0,
+        verbose=False,
+        output_path=None,
+    )
+    dense = pyzdcf_from_dataframes(
+        lc, lc.copy(), prefix="dense", sparse=False, **params
+    )
+    streaming = pyzdcf_from_dataframes(
+        lc, lc.copy(), prefix="stream", sparse=True, **params
+    )
+
+    assert np.allclose(dense.to_numpy(), streaming.to_numpy())
