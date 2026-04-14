@@ -44,9 +44,19 @@ Dependencies
    ::
 
       python = ">=3.9,<3.15"
-      numpy = "^1.21.6"
-      pandas = "^2.2.3"
+      numpy = [
+        { version = ">=1.21.6,<2.0", python = ">=3.9,<3.11" },
+        { version = ">=2.4.4,<3.0", python = ">=3.11,<3.15" },
+      ]
+      pandas = [
+        { version = ">=2.2.3,<3.0", python = ">=3.9,<3.11" },
+        { version = ">=3.0.2,<4.0", python = ">=3.11,<3.15" },
+      ]
       scipy = "^1.11"
+
+Latest NumPy and pandas releases currently require Python 3.11 or newer, so
+Python 3.9 and 3.10 environments stay on the latest compatible NumPy 1.x and
+pandas 2.x releases instead.
 
 
 How to use
