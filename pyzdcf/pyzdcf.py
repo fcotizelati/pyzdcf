@@ -95,10 +95,37 @@ def _prepare_light_curve(lc):
         raise ValueError("Flux uncertainties must be non-negative.")
 
     lc.sort_values(by="t", ascending=True, inplace=True)
-    lc = lc.groupby("t", as_index=False).mean()
+    lc = _combine_duplicate_times(lc)
     lc.reset_index(drop=True, inplace=True)
 
     return lc
+
+
+def _combine_duplicate_times(lc):
+    rows = []
+    for t, group in lc.groupby("t", sort=True):
+        flux = group["flux"].to_numpy(dtype=float)
+        err = group["err"].to_numpy(dtype=float)
+
+        if len(group) == 1:
+            rows.append((float(t), float(flux[0]), float(err[0])))
+            continue
+
+        zero_err = err == 0
+        if zero_err.any():
+            rows.append((float(t), float(np.mean(flux[zero_err])), 0.0))
+            continue
+
+        weights = 1.0 / np.square(err)
+        rows.append(
+            (
+                float(t),
+                float(np.average(flux, weights=weights)),
+                float(np.sqrt(1.0 / np.sum(weights))),
+            )
+        )
+
+    return pd.DataFrame(rows, columns=["t", "flux", "err"])
 
 
 def _count_zero_pairs(a_t, b_t):

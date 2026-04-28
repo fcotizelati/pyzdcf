@@ -56,6 +56,17 @@ def test_read_obs_accepts_dir_without_trailing_slash(tmp_path):
     assert len(df) == 2
 
 
+def test_read_obs_combines_duplicate_times_with_inverse_variance_weights(tmp_path):
+    data_path = tmp_path / "lc.csv"
+    write_lc(data_path, ["0,10.0,1.0", "0,20.0,2.0", "1,30.0,1.0"])
+
+    df = read_obs("lc.csv", input_dir=tmp_path, sep=",")
+
+    assert len(df) == 2
+    assert np.isclose(df.loc[0, "flux"], 12.0)
+    assert np.isclose(df.loc[0, "err"], np.sqrt(1 / 1.25))
+
+
 def test_read_obs_rejects_negative_uncertainty(tmp_path):
     data_path = tmp_path / "bad_err.csv"
     write_lc(data_path, ["0,1.0,-0.1", "1,2.0,0.1"])

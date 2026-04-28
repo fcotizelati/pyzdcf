@@ -52,7 +52,6 @@ Dependencies
         { version = ">=2.2.3,<3.0", python = ">=3.9,<3.11" },
         { version = ">=3.0.2,<4.0", python = ">=3.11,<3.15" },
       ]
-      scipy = "^1.11"
 
 Latest NumPy and pandas releases currently require Python 3.11 or newer, so
 Python 3.9 and 3.10 environments stay on the latest compatible NumPy 1.x and
@@ -82,19 +81,19 @@ First few lines of the example input file accepted by default (CSV):
    3.0,0.9622807967282166,0.0019245615934564328
    
 .. note::
-   pyZDCF is tested only with input files having whole numbers (integers) for 
-   time column. If you have decimal numbers (e.g., you have a light curve with 
-   several measurments in the same night expressed as fractions of a day 
-   instead of minutes), just convert them into a time format with integer 
-   values (e.g., minutes instead of days). On the other hand, you could round 
-   the values from the same day (e.g. 5.6 --> 5, 5.8 --> 5, etc.) and the 
-   algorithm will take in the information and average the flux for that day. 
+   pyZDCF is tested only with input files having whole numbers (integers) for
+   the time column. If you have decimal numbers (e.g., a light curve with
+   several measurements in the same night expressed as fractions of a day
+   instead of minutes), convert them into a time format with integer values
+   (e.g., minutes instead of days). Rows with identical time stamps are combined
+   before binning with inverse-variance weights; zero-error rows dominate the
+   combined value.
    
 Input parameters
 ~~~~~~~~~~~~~~~~
 
 If you use interactive mode (``intr = True``), then pyZDCF will ask you to
-enter all input parametars interactively, similarly to original ZDCF interface.
+enter all input parameters interactively, similarly to original ZDCF interface.
 There is also a manual mode (``intr = False``) where you can provide input
 parameters using a dictionary and passing it to ``parameters`` keyword argument.
 
@@ -192,9 +191,10 @@ An example for calculating cross-correlation between two light curves:
    notebook <https://github.com/LSST-sersag/pyzdcf/blob/main/notebooks/examples.ipynb>`__.
 -  Additionally, you can also check out code description of the original
    Fortran version because the majority of input parameters and all
-   output files are the same as in pyZDCF. You can download the fortran
+   output files are the same as in pyZDCF. You can download the Fortran
    source code
    `here <https://www.weizmann.ac.il/particle/tal/research-activities/software>`__.
+
 ..
    -  To see pyZDCF application in the context of a science case involving
       photometric reverberation mapping of active galactic nuclei see `this
@@ -204,16 +204,15 @@ An example for calculating cross-correlation between two light curves:
 Features
 --------
 
--  **Sparse matrix implementation** for reduced
-   RAM usage when working with long light curves (>3000 points). 
-      - The main benefit is that we can now run these demanding calculations
-       on our own personal computers (8 GB of RAM is enough for light curves 
-       containing up to 15000 points), making the usage of this algorithm more
-       convinient than ever. You can turn this on/off by specifying ``sparse`` 
-       keyword argument to ``True`` or ``False``. Default value is ``'auto'``, 
-       where sparse marices are utilized when there are more than 3000 points
-       per light curve. Note that by reducing RAM usage, we pay in increased 
-       program running time.
+-  **Sparse matrix implementation** for reduced RAM usage when working with
+   long light curves (>3000 points). The main benefit is that we can now run
+   these demanding calculations on personal computers (8 GB of RAM is enough for
+   light curves containing up to 15000 points), making the usage of this
+   algorithm more convenient than ever. You can turn this on/off by specifying
+   the ``sparse`` keyword argument to ``True`` or ``False``. Default value is
+   ``'auto'``, where sparse matrices are utilized when there are more than 3000
+   points per light curve. Note that by reducing RAM usage, we pay in increased
+   program running time.
 -  **Interactive mode**: program specifically asks the user to provide
    necessary parameters (similar to original Fortran version);
 -  **Manual mode**: user can provide all parameters in one dictionary.
@@ -260,10 +259,10 @@ Acknowledgments
    Prof. Tal Alexander (Weizmann Institute of Science, Israel). You can download original Fortran version from professor’s 
    `page <https://www.weizmann.ac.il/particle/tal/research-activities/software>`__.
 -  For theoretical details regarding the ZDCF algorithm see this publication: `Alexander 1997 <https://ui.adsabs.harvard.edu/abs/1997ASSL..218..163A/abstract>`__.
--  Huge thanks to my closest collegues and mentors Dr. Andjelka
+-  Huge thanks to my closest colleagues and mentors Dr. Andjelka
    Kovačević and Dr. Dragana Ilić, as well as to Dr. Paula Sánchez-Sáez
    and Dr. Robert Nikutta for invaluable input during the development
-   and testing of this python module.  
+   and testing of this Python module.
 -  Many thanks to Prof. Eli Waxman, Amir Bar On and former students of
    Prof. Tal Alexander for their kind assistance regarding the
    development of pyZDCF module and for its acknowledgment as part of the

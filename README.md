@@ -39,7 +39,6 @@ pip install pyzdcf
 >  { version = ">=2.2.3,<3.0", python = ">=3.9,<3.11" },
 >  { version = ">=3.0.2,<4.0", python = ">=3.11,<3.15" },
 >]
->scipy = "^1.11"
 >```
 
 Older versions of `pyzdcf` support older versions of Python, see table for details:
@@ -69,12 +68,12 @@ First few lines of the example input file accepted by default (CSV):
 3.0,0.9622807967282166,0.0019245615934564328
 ```
 
-**NOTE:** pyZDCF is tested only with input files having whole numbers (integers) for time column. If you have decimal numbers (e.g., you have a light curve with several measurments in the same night expressed as fractions of a day instead of minutes), just convert them into a time format with integer values (e.g., minutes instead of days). On the other hand, you could round the values from the same day (e.g. 5.6 --> 5, 5.8 --> 5, etc.) and the algorithm will take in the information and average the flux for that day. 
+**NOTE:** pyZDCF is tested only with input files having whole numbers (integers) for time column. If you have decimal numbers (e.g., you have a light curve with several measurements in the same night expressed as fractions of a day instead of minutes), convert them into a time format with integer values (e.g., minutes instead of days). Rows with identical time stamps are combined before binning with inverse-variance weights; zero-error rows dominate the combined value.
 
 ### Input parameters
 
 If you use interactive mode (`intr = True`), then pyZDCF will ask you to
-enter all input parametars interactively, similarly to original ZDCF interface.
+enter all input parameters interactively, similarly to original ZDCF interface.
 There is also a manual mode (`intr = False`) where you can provide input
 parameters using a dictionary and passing it to `parameters` keyword argument.
 
@@ -171,9 +170,9 @@ dcf_df = pyzdcf(input_dir  = input,
 
 * **Sparse matrix implementation** for reduced RAM usage when working with long light curves (>3000 points);
 > The main benefit is that we can now run these demanding calculations on our own personal computers (8 GB of RAM is enough for
-> light curves containing up to 15000 points), making the usage of this algorithm more convinient than ever.
+> light curves containing up to 15000 points), making the usage of this algorithm more convenient than ever.
 > 
-> You can turn this on/off by specifying `sparse` keyword argument to `True` or `False`. Default value is `'auto'`, where sparse marices are utilized when there are more than 3000 points per light curve. Note that by reducing RAM usage, we pay in increased program running time.
+> You can turn this on/off by specifying `sparse` keyword argument to `True` or `False`. Default value is `'auto'`, where sparse matrices are utilized when there are more than 3000 points per light curve. Note that by reducing RAM usage, we pay in increased program running time.
 
 * **Interactive mode**: program specifically asks the user to provide necessary parameters (similar to original Fortran version);
 * **Manual mode**: user can provide all parameters in one dictionary.
@@ -226,7 +225,7 @@ For other citation formats see: [https://doi.org/10.5281/zenodo.7253034](https:/
 
 * The pyZDCF module is based on the original Fortran code developed by Prof. Tal Alexander (Weizmann Institute of Science, Israel). Download Fortran version from professor's [page](https://www.weizmann.ac.il/particle/tal/research-activities/software).  
 * For theoretical details regarding the ZDCF algorithm see this publication: [Alexander, T. (1997)](https://ui.adsabs.harvard.edu/abs/1997ASSL..218..163A/abstract).  
-* Huge thanks to my closest collegues and mentors Dr. Andjelka Kovačević and Dr. Dragana Ilić, as well as to Dr. Paula Sánchez-Sáez and Dr. Robert Nikutta for invaluable input during the development and testing of this python module.  
+* Huge thanks to my closest colleagues and mentors Dr. Andjelka Kovačević and Dr. Dragana Ilić, as well as to Dr. Paula Sánchez-Sáez and Dr. Robert Nikutta for invaluable input during the development and testing of this Python module.
 * Many thanks to Prof. Eli Waxman, Amir Bar On and former students of Prof. Tal Alexander for their kind assistance regarding the development of pyZDCF module and its acknowledgment as part of the legacy behind late Prof. Alexander.
 
 ## <a name="ref" />References
@@ -235,4 +234,3 @@ For other citation formats see: [https://doi.org/10.5281/zenodo.7253034](https:/
 * [Kovačević, A.; Popović, L. Č.; Shapovalova, A. I.; et al. 2014, Advances in Space Research, 54, 1414-1428](https://ui.adsabs.harvard.edu/abs/2014AdSpR..54.1414K/abstract)
 * [Sánchez-Sáez, P.; Lira, H.; Martí, L.; et al. 2021,The Astronomical Journal, 162, id.206](https://ui.adsabs.harvard.edu/abs/2021AJ....162..206S/abstract)
 * [Shapovalova, A. I.; Popović, L. Č.; Afanasiev, V. L.; et al. 2019, MNRAS, 485, 4790-4803](https://ui.adsabs.harvard.edu/abs/2019MNRAS.485.4790S/abstract)
-
