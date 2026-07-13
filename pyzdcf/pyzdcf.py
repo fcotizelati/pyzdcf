@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import heapq
 from pathlib import Path
 from typing import Iterator
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -63,6 +64,36 @@ def _validate_sparse_mode(sparse):
     if sparse in ("auto", True, False):
         return sparse
     raise ValueError("Invalid sparse mode. Use 'auto', True, or False.")
+
+
+def _normalize_minpts(value):
+    minpts = check_user_input(value, name="minpts")
+    if minpts <= 0:
+        return ENOUGH
+    if minpts < 2:
+        raise ValueError("Invalid minpts. Please enter a whole number >= 2.")
+    if minpts < ENOUGH:
+        warnings.warn(
+            f"minpts={minpts} is below the ZDCF recommended minimum of "
+            f"{ENOUGH} independent pairs; Fisher-z errors for these bins "
+            "are not statistically reliable.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    return minpts
+
+
+def _warn_if_small_bins(dcf_inbin):
+    dcf_inbin = np.asarray(dcf_inbin, dtype=np.int32)
+    small_bins = dcf_inbin < ENOUGH
+    if np.any(small_bins):
+        warnings.warn(
+            f"{np.count_nonzero(small_bins)} ZDCF bin(s) contain fewer than "
+            f"{ENOUGH} independent pairs; Alexander's ZDCF approximation is "
+            "not statistically reliable for these extreme bins.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
 
 
 def _validate_text(value, name):
@@ -610,9 +641,9 @@ def clcdcf(a, b, bins, MC=False):
     dcf_sigtp = np.asarray([zbin.sigtp for zbin in bins], dtype=np.float64)
     dcf_inbin = np.asarray([len(zbin.a_idx) for zbin in bins], dtype=np.int32)
 
-    dcf_r = np.zeros(dcf_nbins, dtype=np.float64)
-    dcf_sigrm = np.zeros(dcf_nbins, dtype=np.float64)
-    dcf_sigrp = np.zeros(dcf_nbins, dtype=np.float64)
+    dcf_r = np.full(dcf_nbins, np.nan, dtype=np.float64)
+    dcf_sigrm = np.full(dcf_nbins, np.nan, dtype=np.float64)
+    dcf_sigrp = np.full(dcf_nbins, np.nan, dtype=np.float64)
 
     if MC:
         a_flux = a["MC"].to_numpy(dtype=np.float64)
@@ -636,12 +667,11 @@ def clcdcf(a, b, bins, MC=False):
         vnorm = vara * varb
 
         if vnorm <= 0:
-            expbin = 0.0
-            dcf_r[ibin] = 0.0
-        else:
-            cov = float(np.dot(wa_centered, wb_centered) / (n - 1))
-            expbin = _clamp_corr(cov / np.sqrt(vnorm))
-            dcf_r[ibin] = expbin
+            continue
+
+        cov = float(np.dot(wa_centered, wb_centered) / (n - 1))
+        expbin = _clamp_corr(cov / np.sqrt(vnorm))
+        dcf_r[ibin] = expbin
 
         sigz = fishs(expbin, n)
         expz = fishe(expbin, n)
@@ -729,10 +759,7 @@ def user_input(interactive=True, verbose=True, parameters=None):
         Minpts = prompt_int(
             "Enter minimal number of points per bin (0 for default): ", "minpts"
         )
-        if Minpts <= 0:
-            Minpts = ENOUGH
-        if Minpts < 2:
-            raise ValueError("Invalid minpts. Please enter a whole number >= 2.")
+        Minpts = _normalize_minpts(Minpts)
         NoZeroLag = prompt_yes_no("Omit zero-lag points? (y/n): ", "zero-lag option")
         nMC = prompt_int("How many Monte Carlo runs for error estimation? ", "num_MC")
         if nMC <= 1:
@@ -763,7 +790,7 @@ def user_input(interactive=True, verbose=True, parameters=None):
         Prefix = _validate_text(parameters["prefix"], "prefix")
         UniSample = _validate_bool(parameters["uniform_sampling"], "uniform_sampling")
         NoZeroLag = _validate_bool(parameters["omit_zero_lags"], "omit_zero_lags")
-        Minpts = check_user_input(parameters["minpts"], name="minpts")
+        Minpts = _normalize_minpts(parameters["minpts"])
         nMC = check_user_input(parameters["num_MC"], name="num_MC")
         Name1 = _validate_text(parameters["lc1_name"], "lc1_name")
 
@@ -774,10 +801,6 @@ def user_input(interactive=True, verbose=True, parameters=None):
                 raise KeyError("Missing key in input dictionary 'parameters': lc2_name")
             Name2 = _validate_text(parameters["lc2_name"], "lc2_name")
 
-        if Minpts <= 0:
-            Minpts = ENOUGH
-        if Minpts < 2:
-            raise ValueError("Invalid minpts. Please enter a whole number >= 2.")
         if nMC <= 1:
             nMC = 0
 
@@ -812,8 +835,19 @@ def _compute_zdcf(a, b, config, nMC, verbose=True, sparse="auto", output_path=No
         dcf_avz = None
 
         for i in range(nMC):
-            a["MC"] = simerr(a.flux.to_numpy(dtype=np.float64), a.err.to_numpy(dtype=np.float64), rng=rng)
-            b["MC"] = simerr(b.flux.to_numpy(dtype=np.float64), b.err.to_numpy(dtype=np.float64), rng=rng)
+            a["MC"] = simerr(
+                a.flux.to_numpy(dtype=np.float64),
+                a.err.to_numpy(dtype=np.float64),
+                rng=rng,
+            )
+            if config.autocf:
+                b["MC"] = a["MC"].to_numpy(dtype=np.float64)
+            else:
+                b["MC"] = simerr(
+                    b.flux.to_numpy(dtype=np.float64),
+                    b.err.to_numpy(dtype=np.float64),
+                    rng=rng,
+                )
             dcf_taus, dcf_rs, dcf_other = clcdcf(a, b, bins, MC=True)
             dcf_r = _clamp_corr(dcf_rs[0])
             dcf_z = np.arctanh(dcf_r)
@@ -848,6 +882,9 @@ def _compute_zdcf(a, b, config, nMC, verbose=True, sparse="auto", output_path=No
             print(
                 f"{dcf_other[1]} bins actually used, {int(dcf_unused)} inter-dependent pairs discarded."
             )
+
+    if config.minpts >= ENOUGH:
+        _warn_if_small_bins(dcf_other[0])
 
     d = np.column_stack(
         (dcf_t, dcf_sigtm, dcf_sigtp, dcf_r, dcf_sigrm, dcf_sigrp, dcf_other[0])
@@ -904,12 +941,8 @@ def pyzdcf_from_dataframes(
     sparse = _validate_sparse_mode(sparse)
     _validate_text(prefix, "prefix")
 
-    minpts = check_user_input(minpts, name="minpts")
+    minpts = _normalize_minpts(minpts)
     num_MC = check_user_input(num_MC, name="num_MC")
-    if minpts <= 0:
-        minpts = ENOUGH
-    if minpts < 2:
-        raise ValueError("Invalid minpts. Please enter a whole number >= 2.")
     if num_MC <= 1:
         num_MC = 0
 

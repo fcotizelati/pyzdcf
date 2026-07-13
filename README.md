@@ -83,7 +83,10 @@ Available input parameters (keys in the `parameters` dictionary) are:
 - `prefix` - provide a name for the output file.
 - `uniform_sampling` - if ``True``, set flag to perform uniform sampling of the light curve.
 - `omit_zero_lags` - if True, omit zero lag points.
-- `minpts` - minimal number of points per bin.
+- `minpts` - minimal number of points per bin. A value of `0` uses the ZDCF
+  default of 11 independent pairs per bin. Values below 11 are allowed for
+  backwards compatibility, but pyZDCF emits a warning because the Fisher-z
+  approximation is not statistically reliable for such small bins.
 - `num_MC` - number of Monte Carlo simulations for error estimation.
 - `lc1_name` - Name of the first light curve file
 - `lc2_name` - Name of the second light curve file (required only if we do cross-correlation)
@@ -105,10 +108,18 @@ The return value of the `pyzdcf` function is a `pandas.DataFrame` object display
 | 3 |  -982 |           2 |           0 |  0.239601    |  0.237615   |  0.223317   |   19 |
 | 4 |  -979 |           2 |           0 |  0.331415    |  0.208171   |  0.192523   |   22 |
 ```
-The columns are: time-lag, negative time-lag std, positive time-lag std, zdcf,
-negative zdcf sampling error, positive zdcf sampling error, number of points 
-per bin. For more information on how these values are calculated see 
-[Alexander 1997](https://ui.adsabs.harvard.edu/abs/1997ASSL..218..163A/abstract).
+The columns are: time-lag, negative time-lag interval, positive time-lag
+interval, zdcf, negative zdcf sampling error, positive zdcf sampling error,
+number of independent pairs per bin. If either side of a bin has zero variance,
+Pearson's correlation coefficient is undefined and pyZDCF reports `NaN` for the
+correlation and its errors. For more information on how these values are
+calculated see [Alexander 1997](https://ui.adsabs.harvard.edu/abs/1997ASSL..218..163A/abstract)
+and the expanded ZDCF description in
+[Alexander 2013](https://arxiv.org/abs/1302.1508).
+
+ZDCF bins with fewer than 11 independent pairs, including extreme leftover bins,
+are returned for compatibility but are flagged with a warning. Treat their
+Fisher-z errors as unreliable.
 
 The code will also generate an output .dcf file file in a specified folder on your computer with same 7 columns containing the results. It is allowed to name these files however you want using the `prefix` parameter (see example in the next subsection).
 
@@ -134,7 +145,7 @@ params = dict(autocf            =  False, # Autocorrelation (T) or cross-correla
               prefix            = 'ccf',  # Output files prefix
               uniform_sampling  =  False, # Uniform sampling?
               omit_zero_lags    =  True,  # Omit zero lag points?
-              minpts            =  0,     # Min. num. of points per bin (0 is a flag for default value of 11)
+              minpts            =  0,     # Min. num. of points per bin (0 uses the default value of 11)
               num_MC            =  100,   # Num. of Monte Carlo simulations for error estimation
               lc1_name          =  lc1,   # Name of the first light curve file
               lc2_name          =  lc2    # Name of the second light curve file (required only if we do CCF)

@@ -167,14 +167,15 @@ def test_pyzdcf_writes_output_without_trailing_slash(tmp_path):
         "lc1_name": "lc.csv",
     }
 
-    df = pyzdcf(
-        input_dir=str(tmp_path),
-        output_dir=str(tmp_path),
-        intr=False,
-        parameters=params,
-        sparse=False,
-        verbose=False,
-    )
+    with pytest.warns(RuntimeWarning, match="below the ZDCF recommended minimum"):
+        df = pyzdcf(
+            input_dir=str(tmp_path),
+            output_dir=str(tmp_path),
+            intr=False,
+            parameters=params,
+            sparse=False,
+            verbose=False,
+        )
 
     assert (tmp_path / "out.dcf").exists()
     assert not df.empty
@@ -195,14 +196,15 @@ def test_pyzdcf_handles_lag_equal_negative_sentinel_value(tmp_path):
         "lc2_name": "b.csv",
     }
 
-    df = pyzdcf(
-        input_dir=str(tmp_path),
-        output_dir=str(tmp_path),
-        intr=False,
-        parameters=params,
-        sparse=False,
-        verbose=False,
-    )
+    with pytest.warns(RuntimeWarning, match="below the ZDCF recommended minimum"):
+        df = pyzdcf(
+            input_dir=str(tmp_path),
+            output_dir=str(tmp_path),
+            intr=False,
+            parameters=params,
+            sparse=False,
+            verbose=False,
+        )
 
     assert not df.empty
     assert np.isclose(df["tau"].iloc[0], -9999.0)
@@ -245,15 +247,16 @@ def test_pyzdcf_raises_clear_error_when_no_valid_pairs(tmp_path):
         "lc1_name": "lc.csv",
     }
 
-    with pytest.raises(ValueError, match="No valid pairs available for binning"):
-        pyzdcf(
-            input_dir=str(tmp_path),
-            output_dir=str(tmp_path),
-            intr=False,
-            parameters=params,
-            sparse=False,
-            verbose=False,
-        )
+    with pytest.warns(RuntimeWarning, match="below the ZDCF recommended minimum"):
+        with pytest.raises(ValueError, match="No valid pairs available for binning"):
+            pyzdcf(
+                input_dir=str(tmp_path),
+                output_dir=str(tmp_path),
+                intr=False,
+                parameters=params,
+                sparse=False,
+                verbose=False,
+            )
 
 
 def test_pyzdcf_avoids_divide_by_zero_warning_on_empty_last_bin(tmp_path):
@@ -318,14 +321,15 @@ def test_pyzdcf_does_not_modify_global_numpy_rng_state(tmp_path):
 
     np.random.seed(987654)
     observed_first = np.random.random()
-    pyzdcf(
-        input_dir=str(tmp_path),
-        output_dir=str(tmp_path),
-        intr=False,
-        parameters=params,
-        sparse=False,
-        verbose=False,
-    )
+    with pytest.warns(RuntimeWarning, match="below the ZDCF recommended minimum"):
+        pyzdcf(
+            input_dir=str(tmp_path),
+            output_dir=str(tmp_path),
+            intr=False,
+            parameters=params,
+            sparse=False,
+            verbose=False,
+        )
     observed_second = np.random.random()
 
     assert np.isclose(observed_first, expected_first)
@@ -396,6 +400,92 @@ def test_clcdcf_is_numerically_stable_for_large_flux_offsets():
     assert np.isclose(dcf_rs[0][0], 1.0, rtol=1e-6)
 
 
+def test_clcdcf_marks_zero_variance_correlation_as_nan():
+    lc = pd.DataFrame(
+        {"t": [0, 1, 2], "flux": [5.0, 5.0, 5.0], "err": [0.1, 0.1, 0.1]}
+    )
+    bins = [
+        ZDCFBin(
+            tau=0.0,
+            sigtm=0.0,
+            sigtp=0.0,
+            a_idx=np.array([0, 1, 2], dtype=np.int32),
+            b_idx=np.array([0, 1, 2], dtype=np.int32),
+        )
+    ]
+
+    _, dcf_rs, _ = clcdcf(lc, lc, bins, MC=False)
+
+    assert np.isnan(dcf_rs[0][0])
+    assert np.isnan(dcf_rs[1][0])
+    assert np.isnan(dcf_rs[2][0])
+
+
+def test_autocf_monte_carlo_uses_one_perturbed_curve_at_zero_lag():
+    t = np.arange(20, dtype=float)
+    lc = pd.DataFrame(
+        {
+            "t": t,
+            "flux": np.sin(t / 3.0),
+            "err": np.full_like(t, 2.0),
+        }
+    )
+
+    df = pyzdcf_from_dataframes(
+        lc,
+        autocf=True,
+        uniform_sampling=True,
+        omit_zero_lags=False,
+        minpts=11,
+        num_MC=100,
+        verbose=False,
+        sparse=False,
+    )
+
+    zero_lag = df.loc[np.isclose(df["tau"], 0.0)].iloc[0]
+    assert np.isclose(zero_lag["dcf"], 1.0, rtol=1e-6)
+
+
+def test_minpts_below_zdcf_recommendation_warns():
+    t = np.arange(6, dtype=float)
+    lc = pd.DataFrame(
+        {"t": t, "flux": np.sin(t), "err": np.full_like(t, 0.1)}
+    )
+
+    with pytest.warns(RuntimeWarning, match="below the ZDCF recommended minimum"):
+        pyzdcf_from_dataframes(
+            lc,
+            autocf=True,
+            uniform_sampling=True,
+            omit_zero_lags=False,
+            minpts=2,
+            num_MC=0,
+            verbose=False,
+            sparse=False,
+        )
+
+
+def test_default_minpts_warns_when_extreme_bin_has_too_few_pairs():
+    t = np.arange(12, dtype=float)
+    lc = pd.DataFrame(
+        {"t": t, "flux": np.sin(t), "err": np.full_like(t, 0.1)}
+    )
+
+    with pytest.warns(RuntimeWarning, match="fewer than 11 independent pairs"):
+        df = pyzdcf_from_dataframes(
+            lc,
+            autocf=True,
+            uniform_sampling=False,
+            omit_zero_lags=False,
+            minpts=0,
+            num_MC=0,
+            verbose=False,
+            sparse=False,
+        )
+
+    assert df["#bin"].min() < 11
+
+
 def test_dense_and_streaming_paths_match():
     lc = pd.DataFrame(
         {
@@ -414,11 +504,13 @@ def test_dense_and_streaming_paths_match():
         verbose=False,
         output_path=None,
     )
-    dense = pyzdcf_from_dataframes(
-        lc, lc.copy(), prefix="dense", sparse=False, **params
-    )
-    streaming = pyzdcf_from_dataframes(
-        lc, lc.copy(), prefix="stream", sparse=True, **params
-    )
+    with pytest.warns(RuntimeWarning, match="below the ZDCF recommended minimum"):
+        dense = pyzdcf_from_dataframes(
+            lc, lc.copy(), prefix="dense", sparse=False, **params
+        )
+    with pytest.warns(RuntimeWarning, match="below the ZDCF recommended minimum"):
+        streaming = pyzdcf_from_dataframes(
+            lc, lc.copy(), prefix="stream", sparse=True, **params
+        )
 
     assert np.allclose(dense.to_numpy(), streaming.to_numpy())
