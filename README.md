@@ -30,14 +30,16 @@ pip install pyzdcf
 ### Dependencies
 
 >```
->python = ">=3.9,<3.15"
+>python = ">=3.9,<3.16"
 >numpy = [
 >  { version = ">=1.21.6,<2.0", python = ">=3.9,<3.11" },
 >  { version = ">=2.4.4,<3.0", python = ">=3.11,<3.15" },
+>  { version = ">=2.5.4,<3.0", python = ">=3.15,<3.16" },
 >]
 >pandas = [
 >  { version = ">=2.2.3,<3.0", python = ">=3.9,<3.11" },
 >  { version = ">=3.0.2,<4.0", python = ">=3.11,<3.15" },
+>  { version = ">=3.0.6,<4.0", python = ">=3.15,<3.16" },
 >]
 >```
 
@@ -45,7 +47,7 @@ Older versions of `pyzdcf` support older versions of Python, see table for detai
 
 | `pyzdcf` Version | Supported Python Versions | Notes                                            |
 | ---------------- | ------------------------- | -------------------------------------------------|
-| `>= 1.0.3`       | 3.9 – 3.14                | Python 3.11+ supports NumPy 2.4.4+ and pandas 3.0.2+; Python 3.9 – 3.10 stays on NumPy 1.x / pandas 2.x because upstream latest releases require Python 3.11+ |
+| `>= 1.0.3`       | 3.9 – 3.15                | Python 3.15 uses NumPy 2.5.4+ and pandas 3.0.6+; Python 3.11–3.14 supports NumPy 2.4.4+ and pandas 3.0.2+; Python 3.9 – 3.10 stays on NumPy 1.x / pandas 2.x because upstream latest releases require Python 3.11+ |
 | `<= 1.0.2`       | 3.8 – 3.11                | Compatible with older environments               |
 
 
